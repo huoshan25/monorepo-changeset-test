@@ -204,35 +204,35 @@ function deduplicateChanges(changesetChanges, gitCommits) {
   console.log(`Changeset变更数量: ${changesetChanges.length}`);
   console.log(`Git提交数量: ${gitCommits.length}`);
   
-  // 1. 首先添加changeset变更（优先级更高）
-  for (const change of changesetChanges) {
-    console.log(`✅ 添加changeset变更: "${change.message}"`);
+  // 1. 首先添加git提交（优先级更高，因为有链接和commit hash）
+  for (const commit of gitCommits) {
+    console.log(`✅ 添加git提交: "${commit.message}"`);
     allChanges.push({
-      ...change,
-      source: 'changeset',
+      ...commit,
+      source: 'git',
       priority: 1
     });
   }
   
-  // 2. 然后添加git提交，但要去重
-  for (const commit of gitCommits) {
+  // 2. 然后添加changeset变更，但要去重
+  for (const change of changesetChanges) {
     let isDuplicate = false;
     
-    // 检查是否与已有的changeset变更重复
+    // 检查是否与已有的git提交重复
     for (const existingChange of allChanges) {
-      if (areChangesSimilar(commit.message, existingChange.message)) {
+      if (areChangesSimilar(change.message, existingChange.message)) {
         isDuplicate = true;
-        console.log(`❌ 跳过重复的git提交: "${commit.message}"`);
-        console.log(`   与changeset重复: "${existingChange.message}"`);
+        console.log(`❌ 跳过重复的changeset: "${change.message}"`);
+        console.log(`   与git提交重复: "${existingChange.message}"`);
         break;
       }
     }
     
     if (!isDuplicate) {
-      console.log(`✅ 添加git提交: "${commit.message}"`);
+      console.log(`✅ 添加changeset变更: "${change.message}"`);
       allChanges.push({
-        ...commit,
-        source: 'git',
+        ...change,
+        source: 'changeset',
         priority: 2
       });
     }
@@ -240,7 +240,7 @@ function deduplicateChanges(changesetChanges, gitCommits) {
   
   console.log(`=== 去重完成，最终变更数量: ${allChanges.length} ===\n`);
   
-  // 3. 按优先级排序（changeset在前，git提交在后）
+  // 3. 按优先级排序（git提交在前，changeset在后）
   return allChanges.sort((a, b) => a.priority - b.priority);
 }
 

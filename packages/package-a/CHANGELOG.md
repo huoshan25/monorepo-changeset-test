@@ -4,12 +4,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.2.3](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.3) (2025-06-19)
+## [1.2.4](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.4) (2025-06-19)
 
 
 ### 📝 Documentation
 
-* docs(package-a): 修改测试文件（继续测试第 15 次）
+* **package-a:** 修改测试文件（测试去重优先级） ([c16685a](https://github.com/huoshan25/monorepo-changeset-test/commit/c16685a))
+
+### 🧹 Chores
+
+* 修复deduplicateChanges函数中的优先级逻辑，确保git提交优先于changeset变更，并更新去重检查的相关日志信息。 ([02d9946](https://github.com/huoshan25/monorepo-changeset-test/commit/02d9946))
+
+## [1.2.3](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.3) (2025-06-19)
+
+### 📝 Documentation
+
+- docs(package-a): 修改测试文件（继续测试第 15 次）
 
 ## [1.2.2](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.2) (2025-06-19)
 

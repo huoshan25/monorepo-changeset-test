@@ -4,12 +4,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.1.0](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.1.0) (2025-06-19)
+## [1.2.0](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.0) (2025-06-19)
 
 
 ### ✨ Features
 
-* **package-a:** 添加用户认证功能，支持JWT和OAuth2登录 ([7f546c1](https://github.com/huoshan25/monorepo-changeset-test/commit/7f546c1))
+* feat(package-a): 添加用户权限管理系统
+
+## [1.1.0](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.1.0) (2025-06-19)
+
+### ✨ Features
+
+- **package-a:** 添加用户认证功能，支持 JWT 和 OAuth2 登录 ([7f546c1](https://github.com/huoshan25/monorepo-changeset-test/commit/7f546c1))
 
 ## [1.0.19](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.19) (2025-06-19)
 

@@ -4,12 +4,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.0.18](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.18) (2025-06-19)
+## [1.0.19](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.19) (2025-06-19)
 
+
+### ✨ Features
+
+* **package-a:** 添加新的测试功能用于验证去重逻辑 ([fe2f853](https://github.com/huoshan25/monorepo-changeset-test/commit/fe2f853))
 
 ### 🧹 Chores
 
-* 空提交
+* 优化CHANGELOG生成逻辑，添加变更去重和合并功能，过滤发布相关提交信息 ([ac9ff81](https://github.com/huoshan25/monorepo-changeset-test/commit/ac9ff81))
+
+## [1.0.18](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.18) (2025-06-19)
+
+### 🧹 Chores
+
+- 空提交
 
 ## [1.0.17](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.17) (2025-06-19)
 

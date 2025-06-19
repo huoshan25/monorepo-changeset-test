@@ -4,8 +4,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.0.15](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.15) (2025-06-19)
+## [1.0.16](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.16) (2025-06-19)
 
+
+### 📝 Documentation
+
+* docs(package-a): 测试从changeset文件中提取变更信息的功能
+* docs(package-a): 最终测试CHANGELOG修复，应该正确显示changeset变更内容
+* docs(package-a): 测试手动CHANGELOG生成，应该只包含最新变更
+
+## [1.0.15](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.15) (2025-06-19)
 
 ## [1.0.14](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.14) (2025-06-19)
 

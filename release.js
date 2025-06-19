@@ -83,6 +83,153 @@ function hasChangesets() {
   return changesetFiles.length > 0;
 }
 
+// 获取最新的提交信息
+function getLatestCommits(lastReleaseCommit) {
+  try {
+    let gitLogCmd = 'git log --oneline --pretty=format:"%h %s"';
+    if (lastReleaseCommit) {
+      gitLogCmd += ` ${lastReleaseCommit}..HEAD`;
+    } else {
+      gitLogCmd += ' -10'; // 如果没有上次发布，只取最近10条
+    }
+    
+    const commits = execQuiet(gitLogCmd);
+    if (!commits) return [];
+    
+    return commits.split('\n').filter(line => line.trim()).map(line => {
+      const match = line.match(/^([a-f0-9]+)\s+(.+)$/);
+      if (match) {
+        return {
+          hash: match[1],
+          message: match[2]
+        };
+      }
+      return null;
+    }).filter(Boolean);
+  } catch (e) {
+    console.error('获取提交信息失败:', e);
+    return [];
+  }
+}
+
+// 分类提交信息
+function categorizeCommits(commits) {
+  const categories = {
+    'feat': { section: '✨ Features', commits: [] },
+    'fix': { section: '🐛 Bug Fixes', commits: [] },
+    'docs': { section: '📝 Documentation', commits: [] },
+    'style': { section: '🎨 Code Styles', commits: [] },
+    'refactor': { section: '♻️ Code Refactoring', commits: [] },
+    'perf': { section: '🚀 Performance Improvements', commits: [] },
+    'test': { section: '🧪 Tests', commits: [] },
+    'build': { section: '🏗️ Build System', commits: [] },
+    'ci': { section: '⚙️ CI Configuration', commits: [] },
+    'chore': { section: '🧹 Chores', commits: [] },
+    'revert': { section: '⏮️ Reverts', commits: [] }
+  };
+  
+  commits.forEach(commit => {
+    const message = commit.message;
+    let category = 'chore'; // 默认分类
+    
+    // 解析conventional commit格式
+    const match = message.match(/^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?:\s*(.+)$/);
+    if (match) {
+      category = match[1];
+    }
+    
+    // 跳过发布提交
+    if (message.includes('chore(release):')) {
+      return;
+    }
+    
+    if (categories[category]) {
+      categories[category].commits.push(commit);
+    }
+  });
+  
+  return categories;
+}
+
+// 从changeset文件中提取变更信息
+function extractChangesetInfo(pkgName) {
+  try {
+    if (!fs.existsSync('.changeset')) {
+      return [];
+    }
+    
+    const files = fs.readdirSync('.changeset');
+    const changesetFiles = files.filter(file => 
+      file.endsWith('.md') && 
+      file !== 'README.md' && 
+      file !== 'config.json'
+    );
+    
+    const changes = [];
+    
+    for (const file of changesetFiles) {
+      const content = fs.readFileSync(path.join('.changeset', file), 'utf8');
+      
+      // 检查这个changeset是否包含当前包
+      if (content.includes(`"${pkgName}"`) || content.includes(`'${pkgName}'`)) {
+        // 提取变更描述（---分隔符后面的内容）
+        const parts = content.split('---');
+        if (parts.length >= 3) {
+          const description = parts[2].trim();
+          if (description) {
+            changes.push({
+              message: description,
+              hash: 'changeset', // 标记为来自changeset
+              type: 'changeset'
+            });
+          }
+        }
+      }
+    }
+    
+    return changes;
+  } catch (e) {
+    console.error('提取changeset信息失败:', e);
+    return [];
+  }
+}
+
+// 生成CHANGELOG条目
+function generateChangelogEntry(version, date, commits, changesetChanges, pkgName) {
+  // 合并git提交和changeset变更
+  const allChanges = [...commits, ...changesetChanges];
+  
+  if (allChanges.length === 0) {
+    // 如果没有变更，只返回版本标题
+    return `## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v${version}) (${date})\n\n`;
+  }
+  
+  const categorizedCommits = categorizeCommits(allChanges);
+  
+  let entry = `## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v${version}) (${date})\n\n`;
+  
+  // 按类型生成各个section
+  Object.entries(categorizedCommits).forEach(([type, data]) => {
+    if (data.commits.length > 0) {
+      entry += `\n### ${data.section}\n\n`;
+      data.commits.forEach(commit => {
+        if (commit.type === 'changeset') {
+          // 对于changeset变更，直接使用描述
+          entry += `* ${commit.message}\n`;
+        } else {
+          // 对于git提交，使用原有的格式
+          const scope = commit.message.match(/\(([^)]+)\)/);
+          const scopeText = scope ? `**${scope[1]}:** ` : '';
+          const cleanMessage = commit.message.replace(/^[^:]+:\s*/, '');
+          entry += `* ${scopeText}${cleanMessage} ([${commit.hash}](https://github.com/huoshan25/monorepo-changeset-test/commit/${commit.hash}))\n`;
+        }
+      });
+    }
+  });
+  
+  return entry;
+}
+
 // 生成standard-version格式的CHANGELOG
 function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
   try {
@@ -94,109 +241,103 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
     // 切换到包目录
     process.chdir(pkgPath);
     
-    // 备份现有的CHANGELOG.md（如果存在）
+    // 读取现有的CHANGELOG.md（如果存在）
     let existingChangelog = '';
     const changelogPath = 'CHANGELOG.md';
     if (fs.existsSync(changelogPath)) {
       existingChangelog = fs.readFileSync(changelogPath, 'utf8');
-      // 创建备份
-      fs.writeFileSync('CHANGELOG.backup.md', existingChangelog);
-      console.log(`已备份现有CHANGELOG到: CHANGELOG.backup.md`);
+      console.log(`已读取现有CHANGELOG`);
     }
     
-    // 创建临时的 .versionrc.json，配置为只生成最新版本的条目
-    const versionrcContent = JSON.stringify({
-      "types": [
-        {"type": "feat", "section": "✨ Features"},
-        {"type": "minor", "section": "🌱 Minor Features", "bump": "patch"},
-        {"type": "fix", "section": "🐛 Bug Fixes"},
-        {"type": "docs", "section": "📝 Documentation"},
-        {"type": "style", "section": "🎨 Code Styles"},
-        {"type": "refactor", "section": "♻️ Code Refactoring"},
-        {"type": "perf", "section": "🚀 Performance Improvements"},
-        {"type": "test", "section": "🧪 Tests"},
-        {"type": "build", "section": "🏗️ Build System"},
-        {"type": "ci", "section": "⚙️ CI Configuration"},
-        {"type": "chore", "section": "🧹 Chores"},
-        {"type": "revert", "section": "⏮️ Reverts"}
-      ],
-      "commitUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/commit/{{hash}}",
-      "compareUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/compare/{{previousTag}}...{{currentTag}}",
-      "issueUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/issues/{{id}}",
-      "skip": {
-        "tag": true,
-        "commit": true,
-        "bump": true
-      },
-      "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
-      "path": ".",
-      "packageFiles": ["package.json"],
-      "bumpFiles": ["package.json"]
-    });
+    // 切换回原目录来读取changeset文件
+    process.chdir(currentDir);
     
-    fs.writeFileSync('.versionrc.json', versionrcContent);
+    // 从changeset文件中提取变更信息
+    const changesetChanges = extractChangesetInfo(pkgName);
+    console.log(`从changeset中找到 ${changesetChanges.length} 个变更`);
     
-    // 删除现有的CHANGELOG.md，让standard-version生成新的
-    if (fs.existsSync(changelogPath)) {
-      fs.unlinkSync(changelogPath);
+    // 获取最后一次发布的commit
+    let lastReleaseCommit = '';
+    try {
+      const releaseCommits = execQuiet('git log --oneline --grep="chore(release):" -n 1');
+      if (releaseCommits) {
+        lastReleaseCommit = releaseCommits.split(' ')[0];
+        console.log(`找到最后一次发布提交: ${lastReleaseCommit}`);
+      }
+    } catch (e) {
+      console.log('未找到之前的发布提交');
     }
     
-    // 运行 standard-version 生成 CHANGELOG（只生成从上次发布以来的变更）
-    execQuiet('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
+    // 获取最新的git提交信息
+    const latestCommits = getLatestCommits(lastReleaseCommit);
+    console.log(`找到 ${latestCommits.length} 个新git提交`);
     
-    // 删除临时文件
-    if (fs.existsSync('.versionrc.json')) {
-      fs.unlinkSync('.versionrc.json');
-    }
+    // 生成新版本的CHANGELOG条目
+    const currentDate = getCurrentDate();
+    const newVersionEntry = generateChangelogEntry(currentVersion, currentDate, latestCommits, changesetChanges, pkgName);
     
-    // 处理生成的CHANGELOG
-    if (fs.existsSync(changelogPath)) {
-      const newChangelog = fs.readFileSync(changelogPath, 'utf8');
+    // 切换回包目录
+    process.chdir(pkgPath);
+    
+    // 处理现有CHANGELOG，提取旧版本部分
+    let oldVersionsContent = '';
+    if (existingChangelog) {
+      const existingLines = existingChangelog.split('\n');
       
-      // 合并新旧CHANGELOG
-      let finalChangelog = '';
-      
-      if (existingChangelog) {
-        // 解析现有CHANGELOG的结构
-        const lines = existingChangelog.split('\n');
-        const headerEndIndex = lines.findIndex(line => line.startsWith('## '));
-        
-        if (headerEndIndex !== -1) {
-          // 提取标题和标准格式头部
-          const header = lines.slice(0, headerEndIndex).join('\n');
-          const oldVersions = lines.slice(headerEndIndex).join('\n');
-          
-          // 解析新生成的CHANGELOG
-          const newLines = newChangelog.split('\n');
-          const newHeaderEndIndex = newLines.findIndex(line => line.startsWith('## ') || line.startsWith('### '));
-          
-          if (newHeaderEndIndex !== -1) {
-            // 提取新版本的内容（跳过标题部分）
-            const newVersionContent = newLines.slice(newHeaderEndIndex).join('\n');
-            
-            // 构造最终的CHANGELOG：包名标题 + 标准头部 + 新版本 + 旧版本
-            finalChangelog = `# ${pkgName}\n\n# Changelog\n\nAll notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.\n\n${newVersionContent}\n\n${oldVersions}`;
-          } else {
-            // 如果解析失败，使用原有的CHANGELOG
-            finalChangelog = existingChangelog;
-          }
-        } else {
-          // 如果现有CHANGELOG没有版本信息，直接添加包名标题
-          finalChangelog = `# ${pkgName}\n\n${newChangelog}`;
+      // 找到第一个版本标题的位置
+      let oldVersionsStartIndex = -1;
+      for (let i = 0; i < existingLines.length; i++) {
+        const line = existingLines[i];
+        if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+          oldVersionsStartIndex = i;
+          break;
         }
-      } else {
-        // 如果没有现有CHANGELOG，添加包名标题
-        finalChangelog = `# ${pkgName}\n\n${newChangelog}`;
       }
       
-      // 写入最终的CHANGELOG
-      fs.writeFileSync(changelogPath, finalChangelog);
-      
-      // 清理备份文件
-      if (fs.existsSync('CHANGELOG.backup.md')) {
-        fs.unlinkSync('CHANGELOG.backup.md');
+      if (oldVersionsStartIndex !== -1) {
+        // 过滤掉changeset格式的内容，只保留standard-version格式的版本
+        const oldVersionsLines = existingLines.slice(oldVersionsStartIndex);
+        const filteredOldVersions = [];
+        let skipChangesetVersion = false;
+        
+        for (const line of oldVersionsLines) {
+          // 检测changeset格式的版本标题（没有链接的## 1.0.x格式）
+          if (line.match(/^##\s+\d+\.\d+\.\d+$/) && !line.includes('](')) {
+            skipChangesetVersion = true;
+            continue;
+          }
+          
+          // 检测standard-version格式的版本标题
+          if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+            skipChangesetVersion = false;
+          }
+          
+          // 跳过changeset格式的内容
+          if (skipChangesetVersion) {
+            if (line.includes('### Patch Changes') || line.includes('### Minor Changes') || line.includes('### Major Changes') || line.startsWith('- ')) {
+              continue;
+            }
+          }
+          
+          if (!skipChangesetVersion) {
+            filteredOldVersions.push(line);
+          }
+        }
+        
+        oldVersionsContent = filteredOldVersions.join('\n');
       }
     }
+    
+    // 构造最终的CHANGELOG
+    let finalChangelog = `# ${pkgName}\n\n# Changelog\n\nAll notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.\n\n${newVersionEntry}`;
+    
+    // 如果有旧版本内容，添加到最后
+    if (oldVersionsContent.trim()) {
+      finalChangelog += `\n${oldVersionsContent}`;
+    }
+    
+    // 写入最终的CHANGELOG
+    fs.writeFileSync(changelogPath, finalChangelog);
     
     // 返回原目录
     process.chdir(currentDir);
@@ -207,14 +348,6 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
     // 确保返回原目录
     try {
       process.chdir(currentDir);
-      // 如果有备份，恢复它
-      const backupPath = path.join(pkgPath, 'CHANGELOG.backup.md');
-      const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
-      if (fs.existsSync(backupPath)) {
-        fs.copyFileSync(backupPath, changelogPath);
-        fs.unlinkSync(backupPath);
-        console.log('已恢复CHANGELOG备份');
-      }
     } catch (dirError) {
       // 忽略错误
     }
@@ -231,7 +364,7 @@ async function main() {
       process.exit(0);
     }
 
-    // 2. 在更新版本之前，先检查哪些包在变更集中
+    // 2. 在更新版本之前，先检查哪些包在变更集中并提取变更信息
     console.log('检查哪些包有变更...');
     
     const packagesDir = ['packages', 'apps'];
@@ -250,14 +383,22 @@ async function main() {
       }
     }
     
-    // 跟踪需要更新的包
+    // 跟踪需要更新的包及其changeset信息
     const packagesToUpdate = [];
     
-    // 检查哪些包在变更集中被修改
+    // 检查哪些包在变更集中被修改，并提取changeset信息
     for (const pkg of packages) {
       if (isPackageInChangesets(pkg.name)) {
         console.log(`检测到包 ${pkg.name} 在变更集中`);
-        packagesToUpdate.push(pkg);
+        
+        // 提取changeset变更信息
+        const changesetChanges = extractChangesetInfo(pkg.name);
+        console.log(`为 ${pkg.name} 找到 ${changesetChanges.length} 个changeset变更`);
+        
+        packagesToUpdate.push({
+          ...pkg,
+          changesetChanges
+        });
       } else {
         console.log(`跳过包: ${pkg.name} (不在变更集中)`);
       }
@@ -290,8 +431,8 @@ async function main() {
         path: pkg.path
       });
       
-      // 生成standard-version格式的CHANGELOG
-      generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion);
+      // 生成standard-version格式的CHANGELOG，传递changeset信息
+      generateStandardVersionChangelogWithChangeset(pkg.path, pkg.name, currentVersion, pkg.changesetChanges);
     }
 
     // 5. 提交更改
@@ -327,6 +468,128 @@ async function main() {
   } catch (error) {
     console.error('发布过程中出错:', error);
     process.exit(1);
+  }
+}
+
+// 生成standard-version格式的CHANGELOG（带changeset信息）
+function generateStandardVersionChangelogWithChangeset(pkgPath, pkgName, currentVersion, changesetChanges) {
+  try {
+    console.log(`为 ${pkgName} 生成standard-version格式的CHANGELOG...`);
+    
+    // 保存当前目录
+    const currentDir = process.cwd();
+    
+    // 切换到包目录
+    process.chdir(pkgPath);
+    
+    // 读取现有的CHANGELOG.md（如果存在）
+    let existingChangelog = '';
+    const changelogPath = 'CHANGELOG.md';
+    if (fs.existsSync(changelogPath)) {
+      existingChangelog = fs.readFileSync(changelogPath, 'utf8');
+      console.log(`已读取现有CHANGELOG`);
+    }
+    
+    // 切换回原目录
+    process.chdir(currentDir);
+    
+    console.log(`使用 ${changesetChanges.length} 个changeset变更`);
+    
+    // 获取最后一次发布的commit
+    let lastReleaseCommit = '';
+    try {
+      const releaseCommits = execQuiet('git log --oneline --grep="chore(release):" -n 1');
+      if (releaseCommits) {
+        lastReleaseCommit = releaseCommits.split(' ')[0];
+        console.log(`找到最后一次发布提交: ${lastReleaseCommit}`);
+      }
+    } catch (e) {
+      console.log('未找到之前的发布提交');
+    }
+    
+    // 获取最新的git提交信息
+    const latestCommits = getLatestCommits(lastReleaseCommit);
+    console.log(`找到 ${latestCommits.length} 个新git提交`);
+    
+    // 生成新版本的CHANGELOG条目
+    const currentDate = getCurrentDate();
+    const newVersionEntry = generateChangelogEntry(currentVersion, currentDate, latestCommits, changesetChanges, pkgName);
+    
+    // 切换回包目录
+    process.chdir(pkgPath);
+    
+    // 处理现有CHANGELOG，提取旧版本部分
+    let oldVersionsContent = '';
+    if (existingChangelog) {
+      const existingLines = existingChangelog.split('\n');
+      
+      // 找到第一个版本标题的位置
+      let oldVersionsStartIndex = -1;
+      for (let i = 0; i < existingLines.length; i++) {
+        const line = existingLines[i];
+        if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+          oldVersionsStartIndex = i;
+          break;
+        }
+      }
+      
+      if (oldVersionsStartIndex !== -1) {
+        // 过滤掉changeset格式的内容，只保留standard-version格式的版本
+        const oldVersionsLines = existingLines.slice(oldVersionsStartIndex);
+        const filteredOldVersions = [];
+        let skipChangesetVersion = false;
+        
+        for (const line of oldVersionsLines) {
+          // 检测changeset格式的版本标题（没有链接的## 1.0.x格式）
+          if (line.match(/^##\s+\d+\.\d+\.\d+$/) && !line.includes('](')) {
+            skipChangesetVersion = true;
+            continue;
+          }
+          
+          // 检测standard-version格式的版本标题
+          if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+            skipChangesetVersion = false;
+          }
+          
+          // 跳过changeset格式的内容
+          if (skipChangesetVersion) {
+            if (line.includes('### Patch Changes') || line.includes('### Minor Changes') || line.includes('### Major Changes') || line.startsWith('- ')) {
+              continue;
+            }
+          }
+          
+          if (!skipChangesetVersion) {
+            filteredOldVersions.push(line);
+          }
+        }
+        
+        oldVersionsContent = filteredOldVersions.join('\n');
+      }
+    }
+    
+    // 构造最终的CHANGELOG
+    let finalChangelog = `# ${pkgName}\n\n# Changelog\n\nAll notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.\n\n${newVersionEntry}`;
+    
+    // 如果有旧版本内容，添加到最后
+    if (oldVersionsContent.trim()) {
+      finalChangelog += `\n${oldVersionsContent}`;
+    }
+    
+    // 写入最终的CHANGELOG
+    fs.writeFileSync(changelogPath, finalChangelog);
+    
+    // 返回原目录
+    process.chdir(currentDir);
+    
+    console.log(`✅ 已为 ${pkgName} 生成standard-version格式的CHANGELOG`);
+  } catch (e) {
+    console.error(`为 ${pkgName} 生成 CHANGELOG 失败:`, e);
+    // 确保返回原目录
+    try {
+      process.chdir(currentDir);
+    } catch (dirError) {
+      // 忽略错误
+    }
   }
 }
 

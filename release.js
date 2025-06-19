@@ -84,8 +84,20 @@ function hasChangesets() {
 }
 
 // 获取最新的提交信息
-function getLatestCommits(lastReleaseCommit) {
+function getLatestCommits() {
   try {
+    // 获取最后一次发布的commit
+    let lastReleaseCommit = '';
+    try {
+      const releaseCommits = execQuiet('git log --oneline --grep="chore(release):" -n 1');
+      if (releaseCommits) {
+        lastReleaseCommit = releaseCommits.split(' ')[0];
+        console.log(`找到最后一次发布提交: ${lastReleaseCommit}`);
+      }
+    } catch (e) {
+      console.log('未找到之前的发布提交');
+    }
+    
     let gitLogCmd = 'git log --oneline --pretty=format:"%h %s"';
     if (lastReleaseCommit) {
       gitLogCmd += ` ${lastReleaseCommit}..HEAD`;
@@ -124,28 +136,66 @@ function getLatestCommits(lastReleaseCommit) {
 function areChangesSimilar(change1, change2) {
   if (!change1 || !change2) return false;
   
-  // 简单的相似度检查：移除标点符号和空格后比较
-  const normalize = (str) => str.toLowerCase()
-    .replace(/[^\w\s\u4e00-\u9fff]/g, '') // 移除标点符号，保留中英文
-    .replace(/\s+/g, ''); // 移除空格
+  // 提取核心内容进行比较
+  const extractCore = (str) => {
+    return str.toLowerCase()
+      .replace(/^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]*\))?:\s*/i, '') // 移除type(scope):
+      .replace(/[^\w\s\u4e00-\u9fff]/g, '') // 移除标点符号，保留中英文
+      .replace(/\s+/g, ' ') // 标准化空格
+      .trim();
+  };
   
-  const norm1 = normalize(change1);
-  const norm2 = normalize(change2);
+  const core1 = extractCore(change1);
+  const core2 = extractCore(change2);
   
-  // 如果一个字符串包含另一个，或者它们高度相似，则认为重复
-  return norm1.includes(norm2) || norm2.includes(norm1) || 
-         (norm1 === norm2) ||
-         (norm1.length > 10 && norm2.length > 10 && 
-          (norm1.indexOf(norm2.substring(0, Math.min(20, norm2.length))) !== -1 ||
-           norm2.indexOf(norm1.substring(0, Math.min(20, norm1.length))) !== -1));
+  // 如果核心内容为空，不认为相似
+  if (!core1 || !core2) return false;
+  
+  // 计算相似度
+  const similarity = calculateSimilarity(core1, core2);
+  
+  // 如果相似度超过70%，认为是重复
+  return similarity > 0.7;
+}
+
+// 计算两个字符串的相似度
+function calculateSimilarity(str1, str2) {
+  // 使用简单的编辑距离算法
+  const len1 = str1.length;
+  const len2 = str2.length;
+  
+  if (len1 === 0) return len2 === 0 ? 1 : 0;
+  if (len2 === 0) return 0;
+  
+  // 如果长度差异太大，直接认为不相似
+  if (Math.abs(len1 - len2) > Math.max(len1, len2) * 0.5) return 0;
+  
+  // 简单的包含检查
+  if (str1.includes(str2) || str2.includes(str1)) return 0.9;
+  
+  // 检查共同的关键词
+  const words1 = str1.split(' ').filter(w => w.length > 2);
+  const words2 = str2.split(' ').filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const commonWords = words1.filter(w => words2.includes(w));
+  const similarity = (commonWords.length * 2) / (words1.length + words2.length);
+  
+  return similarity;
 }
 
 // 去重和合并变更
 function deduplicateChanges(changesetChanges, gitCommits) {
   const allChanges = [];
   
+  console.log('\n=== 开始去重处理 ===');
+  console.log(`Changeset变更数量: ${changesetChanges.length}`);
+  console.log(`Git提交数量: ${gitCommits.length}`);
+  
   // 1. 首先添加changeset变更（优先级更高）
   for (const change of changesetChanges) {
+    console.log(`✅ 添加changeset变更: "${change.message}"`);
     allChanges.push({
       ...change,
       source: 'changeset',
@@ -161,12 +211,14 @@ function deduplicateChanges(changesetChanges, gitCommits) {
     for (const existingChange of allChanges) {
       if (areChangesSimilar(commit.message, existingChange.message)) {
         isDuplicate = true;
-        console.log(`跳过重复的git提交: "${commit.message}"`);
+        console.log(`❌ 跳过重复的git提交: "${commit.message}"`);
+        console.log(`   与changeset重复: "${existingChange.message}"`);
         break;
       }
     }
     
     if (!isDuplicate) {
+      console.log(`✅ 添加git提交: "${commit.message}"`);
       allChanges.push({
         ...commit,
         source: 'git',
@@ -174,6 +226,8 @@ function deduplicateChanges(changesetChanges, gitCommits) {
       });
     }
   }
+  
+  console.log(`=== 去重完成，最终变更数量: ${allChanges.length} ===\n`);
   
   // 3. 按优先级排序（changeset在前，git提交在后）
   return allChanges.sort((a, b) => a.priority - b.priority);
@@ -298,9 +352,10 @@ function generateChangelogEntry(version, date, commits, changesetChanges, pkgNam
 }
 
 // 生成standard-version格式的CHANGELOG
-function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
+function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion, changesetChanges) {
   try {
     console.log(`为 ${pkgName} 生成standard-version格式的CHANGELOG...`);
+    console.log(`使用传入的 ${changesetChanges ? changesetChanges.length : 0} 个changeset变更`);
     
     // 保存当前目录
     const currentDir = process.cwd();
@@ -316,32 +371,16 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
       console.log(`已读取现有CHANGELOG`);
     }
     
-    // 切换回原目录来读取changeset文件
+    // 切换回原目录
     process.chdir(currentDir);
     
-    // 从changeset文件中提取变更信息
-    const changesetChanges = extractChangesetInfo(pkgName);
-    console.log(`从changeset中找到 ${changesetChanges.length} 个变更`);
-    
-    // 获取最后一次发布的commit
-    let lastReleaseCommit = '';
-    try {
-      const releaseCommits = execQuiet('git log --oneline --grep="chore(release):" -n 1');
-      if (releaseCommits) {
-        lastReleaseCommit = releaseCommits.split(' ')[0];
-        console.log(`找到最后一次发布提交: ${lastReleaseCommit}`);
-      }
-    } catch (e) {
-      console.log('未找到之前的发布提交');
-    }
-    
     // 获取最新的git提交信息
-    const latestCommits = getLatestCommits(lastReleaseCommit);
+    const latestCommits = getLatestCommits();
     console.log(`找到 ${latestCommits.length} 个新git提交`);
     
     // 生成新版本的CHANGELOG条目
     const currentDate = getCurrentDate();
-    const newVersionEntry = generateChangelogEntry(currentVersion, currentDate, latestCommits, changesetChanges, pkgName);
+    const newVersionEntry = generateChangelogEntry(currentVersion, currentDate, latestCommits, changesetChanges || [], pkgName);
     
     // 切换回包目录
     process.chdir(pkgPath);
@@ -499,7 +538,7 @@ async function main() {
       });
       
       // 生成standard-version格式的CHANGELOG，传递changeset信息
-      generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion);
+      generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion, pkg.changesetChanges);
     }
 
     // 5. 提交更改

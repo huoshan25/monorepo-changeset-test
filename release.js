@@ -47,7 +47,7 @@ function hasVersionChanged(pkgPath, lastCommitId) {
     
     if (!lastPackageJson) {
       // 如果无法获取上次提交的package.json，可能是新包
-      return true;
+      return { changed: false, oldVersion: null, newVersion: null };
     }
     
     // 获取当前package.json内容
@@ -61,69 +61,54 @@ function hasVersionChanged(pkgPath, lastCommitId) {
     const currentVersion = JSON.parse(currentPackageJson).version;
     
     // 比较版本号
-    return lastVersion !== currentVersion;
+    return { 
+      changed: lastVersion !== currentVersion, 
+      oldVersion: lastVersion, 
+      newVersion: currentVersion 
+    };
   } catch (e) {
     console.error(`检查版本变更时出错:`, e);
     // 如果出错，假设没有变更
-    return false;
+    return { changed: false, oldVersion: null, newVersion: null };
   }
 }
 
-// 获取包的变更集信息
-function getChangesetInfo(pkgName) {
-  try {
-    // 读取.changeset目录下的所有.md文件
-    const changesetDir = path.join(process.cwd(), '.changeset');
-    if (!fs.existsSync(changesetDir)) {
-      return null;
-    }
-    
-    const files = fs.readdirSync(changesetDir);
-    for (const file of files) {
-      if (file.endsWith('.md')) {
-        const content = fs.readFileSync(path.join(changesetDir, file), 'utf8');
-        if (content.includes(`"${pkgName}"`)) {
-          return true;
-        }
-      }
-    }
-    
-    return false;
-  } catch (e) {
-    console.error(`获取变更集信息时出错:`, e);
+// 检查是否有变更集文件
+function hasChangesets() {
+  if (!fs.existsSync('.changeset')) {
     return false;
   }
-}
-
-// 删除所有CHANGELOG文件
-function deleteChangelogs() {
-  const packagesDir = ['packages', 'apps'];
   
-  for (const dir of packagesDir) {
-    if (fs.existsSync(dir)) {
-      const subDirs = fs.readdirSync(dir);
-      for (const subDir of subDirs) {
-        const pkgPath = path.join(dir, subDir);
-        const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
-        if (fs.existsSync(changelogPath)) {
-          console.log(`删除旧的CHANGELOG: ${changelogPath}`);
-          fs.unlinkSync(changelogPath);
-        }
-      }
-    }
+  const files = fs.readdirSync('.changeset');
+  // 过滤掉README.md和config.json等非变更集文件
+  const changesetFiles = files.filter(file => 
+    file.endsWith('.md') && 
+    file !== 'README.md' && 
+    file !== 'config.json'
+  );
+  
+  return changesetFiles.length > 0;
+}
+
+// 备份changeset生成的CHANGELOG
+function backupChangesetChangelog(pkgPath) {
+  const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
+  if (fs.existsSync(changelogPath)) {
+    const changelogContent = fs.readFileSync(changelogPath, 'utf8');
+    const backupPath = path.join(pkgPath, 'CHANGELOG.changeset.md');
+    fs.writeFileSync(backupPath, changelogContent);
+    console.log(`已备份changeset生成的CHANGELOG到: ${backupPath}`);
   }
 }
 
 // 主流程
 async function main() {
   try {
-    // 1. 确保工作目录干净
-    console.log('检查 git 工作目录...');
-    try {
-      execSync('git diff-index --quiet HEAD --');
-    } catch (e) {
-      console.error('工作目录不干净，请先提交或暂存更改');
-      process.exit(1);
+    // 1. 检查是否有变更集文件
+    console.log('检查变更集文件...');
+    if (!hasChangesets()) {
+      console.log('没有发现变更集文件，无需发布');
+      process.exit(0);
     }
 
     // 获取最近的提交ID
@@ -159,21 +144,20 @@ async function main() {
     // 为有版本变更的包生成 CHANGELOG
     for (const pkg of packages) {
       // 检查包是否有版本变更
-      const versionChanged = hasVersionChanged(pkg.path, lastCommitId);
+      const versionInfo = hasVersionChanged(pkg.path, lastCommitId);
       
-      if (versionChanged) {
-        console.log(`处理包: ${pkg.name} (版本已变更)`);
-        
-        // 获取包信息
-        const pkgJsonPath = path.join(pkg.path, 'package.json');
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-        const currentVersion = pkgJson.version;
-        const previousVersion = (currentVersion.split('.').map(Number)[2] > 0) 
-          ? `${currentVersion.split('.').slice(0, 2).join('.')}.${currentVersion.split('.')[2] - 1}`
-          : '1.0.0';
+      if (versionInfo.changed) {
+        console.log(`处理包: ${pkg.name} (版本已变更: ${versionInfo.oldVersion} -> ${versionInfo.newVersion})`);
         
         // 记录更新的包
-        updatedPackages.push({ name: pkg.name, version: currentVersion });
+        updatedPackages.push({ 
+          name: pkg.name, 
+          version: versionInfo.newVersion,
+          oldVersion: versionInfo.oldVersion
+        });
+        
+        // 备份changeset生成的CHANGELOG
+        backupChangesetChangelog(pkg.path);
         
         // 在包目录中生成 CHANGELOG
         try {
@@ -206,7 +190,7 @@ async function main() {
               "tag": true,
               "commit": true
             },
-            "header": `# ${pkg.name}\n\n## [${currentVersion}](https://github.com/huoshan25/monorepo-changeset-test/compare/v${previousVersion}...v${currentVersion}) (${getCurrentDate()})\n`
+            "header": `# ${pkg.name}\n\n## [${versionInfo.newVersion}](https://github.com/huoshan25/monorepo-changeset-test/compare/v${versionInfo.oldVersion || '1.0.0'}...v${versionInfo.newVersion}) (${getCurrentDate()})\n`
           });
           
           fs.writeFileSync('.versionrc.json', versionrcContent);
@@ -244,7 +228,16 @@ async function main() {
       const versionInfo = updatedPackages.map(p => `${p.name}@${p.version}`).join(', ');
       const commitMessage = `chore(release): 发布新版本 [${packageNames}] - ${versionInfo}`;
       
-      exec('git add .');
+      // 只添加必要的文件
+      for (const pkg of updatedPackages) {
+        const pkgPath = packages.find(p => p.name === pkg.name).path;
+        exec(`git add ${pkgPath}/package.json ${pkgPath}/CHANGELOG.md`);
+      }
+      // 添加根目录的package.json和pnpm-lock.yaml
+      exec('git add package.json pnpm-lock.yaml');
+      // 添加.changeset目录
+      exec('git add .changeset');
+      
       exec(`git commit -m "${commitMessage}"`);
       
       console.log('完成！');

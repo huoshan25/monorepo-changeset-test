@@ -4,12 +4,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.2.5](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.5) (2025-06-19)
+## [1.2.6](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.6) (2025-06-19)
 
 
 ### 📝 Documentation
 
-* **package-a:** 修改测试文件（继续测试第16次） ([ee74f05](https://github.com/huoshan25/monorepo-changeset-test/commit/ee74f05))
+* **package-a:** 修改测试文件（继续测试第17次） ([30b85d9](https://github.com/huoshan25/monorepo-changeset-test/commit/30b85d9))
+
+### 🧹 Chores
+
+* 优化release.js文件，增加配置常量和正则表达式，重构获取changeset文件的逻辑，改进去重和合并变更的性能，确保更高效的相似度检查，并添加安全的文件操作工具。 ([e3bf62d](https://github.com/huoshan25/monorepo-changeset-test/commit/e3bf62d))
+
+## [1.2.5](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.5) (2025-06-19)
+
+### 📝 Documentation
+
+- **package-a:** 修改测试文件（继续测试第 16 次） ([ee74f05](https://github.com/huoshan25/monorepo-changeset-test/commit/ee74f05))
 
 ## [1.2.4](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.4) (2025-06-19)
 

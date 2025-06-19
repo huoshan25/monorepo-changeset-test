@@ -1,5 +1,11 @@
 # package-a
 
+## 1.0.7
+
+### Patch Changes
+
+- docs(package-a): 修改测试文件（继续测试第五次）
+
 ## 1.0.6
 
 ### Patch Changes

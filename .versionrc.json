@@ -19,5 +19,12 @@
   "skip": {
     "tag": true,
     "commit": true
-  }
+  },
+  "header": "# {{package}}\n\n## [{{currentTag}}]({{compareUrlFormat}}) ({{currentDate}})\n",
+  "packageFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    }
+  ]
 } 

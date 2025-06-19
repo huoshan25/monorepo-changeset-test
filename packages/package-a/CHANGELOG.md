@@ -4,14 +4,25 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.0.16](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.16) (2025-06-19)
+## [1.0.17](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.17) (2025-06-19)
 
+
+### ✨ Features
+
+* **release:** 添加获取最新提交和分类功能，优化CHANGELOG生成逻辑 ([99186f8](https://github.com/huoshan25/monorepo-changeset-test/commit/99186f8))
 
 ### 📝 Documentation
 
-* docs(package-a): 测试从changeset文件中提取变更信息的功能
-* docs(package-a): 最终测试CHANGELOG修复，应该正确显示changeset变更内容
-* docs(package-a): 测试手动CHANGELOG生成，应该只包含最新变更
+* **package-a:** 修改测试文件（继续测试第12次） ([e511755](https://github.com/huoshan25/monorepo-changeset-test/commit/e511755))
+* docs(package-a): 修改测试文件（继续测试第 12 次）
+
+## [1.0.16](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.16) (2025-06-19)
+
+### 📝 Documentation
+
+- docs(package-a): 测试从 changeset 文件中提取变更信息的功能
+- docs(package-a): 最终测试 CHANGELOG 修复，应该正确显示 changeset 变更内容
+- docs(package-a): 测试手动 CHANGELOG 生成，应该只包含最新变更
 
 ## [1.0.15](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.15) (2025-06-19)
 

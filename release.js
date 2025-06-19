@@ -94,12 +94,17 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
     // 切换到包目录
     process.chdir(pkgPath);
     
-    // 删除现有的CHANGELOG.md
-    if (fs.existsSync('CHANGELOG.md')) {
-      fs.unlinkSync('CHANGELOG.md');
+    // 备份现有的CHANGELOG.md（如果存在）
+    let existingChangelog = '';
+    const changelogPath = 'CHANGELOG.md';
+    if (fs.existsSync(changelogPath)) {
+      existingChangelog = fs.readFileSync(changelogPath, 'utf8');
+      // 创建备份
+      fs.writeFileSync('CHANGELOG.backup.md', existingChangelog);
+      console.log(`已备份现有CHANGELOG到: CHANGELOG.backup.md`);
     }
     
-    // 创建临时的 .versionrc.json
+    // 创建临时的 .versionrc.json，配置为只生成最新版本的条目
     const versionrcContent = JSON.stringify({
       "types": [
         {"type": "feat", "section": "✨ Features"},
@@ -131,7 +136,12 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
     
     fs.writeFileSync('.versionrc.json', versionrcContent);
     
-    // 运行 standard-version 生成 CHANGELOG
+    // 删除现有的CHANGELOG.md，让standard-version生成新的
+    if (fs.existsSync(changelogPath)) {
+      fs.unlinkSync(changelogPath);
+    }
+    
+    // 运行 standard-version 生成 CHANGELOG（只生成从上次发布以来的变更）
     execQuiet('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
     
     // 删除临时文件
@@ -139,11 +149,53 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
       fs.unlinkSync('.versionrc.json');
     }
     
-    // 如果CHANGELOG.md存在，添加包名作为标题
-    if (fs.existsSync('CHANGELOG.md')) {
-      const changelogContent = fs.readFileSync('CHANGELOG.md', 'utf8');
-      const newContent = `# ${pkgName}\n\n${changelogContent}`;
-      fs.writeFileSync('CHANGELOG.md', newContent);
+    // 处理生成的CHANGELOG
+    if (fs.existsSync(changelogPath)) {
+      const newChangelog = fs.readFileSync(changelogPath, 'utf8');
+      
+      // 合并新旧CHANGELOG
+      let finalChangelog = '';
+      
+      if (existingChangelog) {
+        // 解析现有CHANGELOG的结构
+        const lines = existingChangelog.split('\n');
+        const headerEndIndex = lines.findIndex(line => line.startsWith('## '));
+        
+        if (headerEndIndex !== -1) {
+          // 提取标题和标准格式头部
+          const header = lines.slice(0, headerEndIndex).join('\n');
+          const oldVersions = lines.slice(headerEndIndex).join('\n');
+          
+          // 解析新生成的CHANGELOG
+          const newLines = newChangelog.split('\n');
+          const newHeaderEndIndex = newLines.findIndex(line => line.startsWith('## ') || line.startsWith('### '));
+          
+          if (newHeaderEndIndex !== -1) {
+            // 提取新版本的内容（跳过标题部分）
+            const newVersionContent = newLines.slice(newHeaderEndIndex).join('\n');
+            
+            // 构造最终的CHANGELOG：包名标题 + 标准头部 + 新版本 + 旧版本
+            finalChangelog = `# ${pkgName}\n\n# Changelog\n\nAll notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.\n\n${newVersionContent}\n\n${oldVersions}`;
+          } else {
+            // 如果解析失败，使用原有的CHANGELOG
+            finalChangelog = existingChangelog;
+          }
+        } else {
+          // 如果现有CHANGELOG没有版本信息，直接添加包名标题
+          finalChangelog = `# ${pkgName}\n\n${newChangelog}`;
+        }
+      } else {
+        // 如果没有现有CHANGELOG，添加包名标题
+        finalChangelog = `# ${pkgName}\n\n${newChangelog}`;
+      }
+      
+      // 写入最终的CHANGELOG
+      fs.writeFileSync(changelogPath, finalChangelog);
+      
+      // 清理备份文件
+      if (fs.existsSync('CHANGELOG.backup.md')) {
+        fs.unlinkSync('CHANGELOG.backup.md');
+      }
     }
     
     // 返回原目录
@@ -155,6 +207,14 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion) {
     // 确保返回原目录
     try {
       process.chdir(currentDir);
+      // 如果有备份，恢复它
+      const backupPath = path.join(pkgPath, 'CHANGELOG.backup.md');
+      const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
+      if (fs.existsSync(backupPath)) {
+        fs.copyFileSync(backupPath, changelogPath);
+        fs.unlinkSync(backupPath);
+        console.log('已恢复CHANGELOG备份');
+      }
     } catch (dirError) {
       // 忽略错误
     }

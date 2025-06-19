@@ -6,16 +6,19 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "pub:changeset": "pnpm changeset",
-    "version": "pnpm changeset version",
+    "version:update": "pnpm changeset version",
     "publish": "pnpm build && pnpm changeset publish",
-    "auto-changeset": "node create-changeset.js"
+    "auto-changeset": "node create-changeset.js",
+    "generate-changelog": "standard-version --skip.tag --skip.commit --skip.bump",
+    "release": "node release.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "turbo": "^2.5.4",
-    "@changesets/get-github-info": "^0.6.0"
+    "@changesets/get-github-info": "^0.6.0",
+    "standard-version": "^9.5.0"
   },
   "dependencies": {
     "@changesets/cli": "^2.29.4"

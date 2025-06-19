@@ -1,0 +1,23 @@
+{
+  "types": [
+    {"type": "feat", "section": "✨ Features"},
+    {"type": "minor", "section": "🌱 Minor Features", "bump": "patch"},
+    {"type": "fix", "section": "🐛 Bug Fixes"},
+    {"type": "docs", "section": "📝 Documentation"},
+    {"type": "style", "section": "🎨 Code Styles"},
+    {"type": "refactor", "section": "♻️ Code Refactoring"},
+    {"type": "perf", "section": "🚀 Performance Improvements"},
+    {"type": "test", "section": "🧪 Tests"},
+    {"type": "build", "section": "🏗️ Build System"},
+    {"type": "ci", "section": "⚙️ CI Configuration"},
+    {"type": "chore", "section": "🧹 Chores"},
+    {"type": "revert", "section": "⏮️ Reverts"}
+  ],
+  "commitUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/compare/{{previousTag}}...{{currentTag}}",
+  "issueUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/issues/{{id}}",
+  "skip": {
+    "tag": true,
+    "commit": true
+  }
+} 

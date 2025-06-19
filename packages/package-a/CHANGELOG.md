@@ -4,17 +4,27 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.2.1](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.1) (2025-06-19)
+## [1.2.2](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.2) (2025-06-19)
 
 
 ### 📝 Documentation
 
-* docs(package-a): 修改测试文件（继续测试第 13 次）
-* **package-a:** 修改测试文件（继续测试第13次） ([f9f4fc4](https://github.com/huoshan25/monorepo-changeset-test/commit/f9f4fc4))
+* docs(package-a): 修改测试文件（继续测试第 14 次）
 
 ### 🧹 Chores
 
-* 优化获取最新提交信息的逻辑，添加对最后一次发布提交的自动检测；改进变更相似度检查算法，使用编辑距离计算相似度；更新生成CHANGELOG的函数以支持传入changeset变更信息。 ([bc93685](https://github.com/huoshan25/monorepo-changeset-test/commit/bc93685))
+* 优化相似度计算算法，增加对中文数字表达的标准化处理，改进关键词过滤逻辑以提高相似度判断准确性。 ([874d3aa](https://github.com/huoshan25/monorepo-changeset-test/commit/874d3aa))
+
+## [1.2.1](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.1) (2025-06-19)
+
+### 📝 Documentation
+
+- docs(package-a): 修改测试文件（继续测试第 13 次）
+- **package-a:** 修改测试文件（继续测试第 13 次） ([f9f4fc4](https://github.com/huoshan25/monorepo-changeset-test/commit/f9f4fc4))
+
+### 🧹 Chores
+
+- 优化获取最新提交信息的逻辑，添加对最后一次发布提交的自动检测；改进变更相似度检查算法，使用编辑距离计算相似度；更新生成 CHANGELOG 的函数以支持传入 changeset 变更信息。 ([bc93685](https://github.com/huoshan25/monorepo-changeset-test/commit/bc93685))
 
 ## [1.2.0](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.2.0) (2025-06-19)
 

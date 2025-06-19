@@ -105,11 +105,78 @@ function getLatestCommits(lastReleaseCommit) {
         };
       }
       return null;
-    }).filter(Boolean);
+    }).filter(Boolean).filter(commit => {
+      // 过滤掉发布相关的提交
+      const message = commit.message.toLowerCase();
+      return !message.includes('chore(release):') && 
+             !message.includes('release:') &&
+             !message.includes('发布新版本') &&
+             !message.includes('version bump') &&
+             !message.includes('update changelog');
+    });
   } catch (e) {
     console.error('获取提交信息失败:', e);
     return [];
   }
+}
+
+// 检查两个变更描述是否相似（避免重复）
+function areChangesSimilar(change1, change2) {
+  if (!change1 || !change2) return false;
+  
+  // 简单的相似度检查：移除标点符号和空格后比较
+  const normalize = (str) => str.toLowerCase()
+    .replace(/[^\w\s\u4e00-\u9fff]/g, '') // 移除标点符号，保留中英文
+    .replace(/\s+/g, ''); // 移除空格
+  
+  const norm1 = normalize(change1);
+  const norm2 = normalize(change2);
+  
+  // 如果一个字符串包含另一个，或者它们高度相似，则认为重复
+  return norm1.includes(norm2) || norm2.includes(norm1) || 
+         (norm1 === norm2) ||
+         (norm1.length > 10 && norm2.length > 10 && 
+          (norm1.indexOf(norm2.substring(0, Math.min(20, norm2.length))) !== -1 ||
+           norm2.indexOf(norm1.substring(0, Math.min(20, norm1.length))) !== -1));
+}
+
+// 去重和合并变更
+function deduplicateChanges(changesetChanges, gitCommits) {
+  const allChanges = [];
+  
+  // 1. 首先添加changeset变更（优先级更高）
+  for (const change of changesetChanges) {
+    allChanges.push({
+      ...change,
+      source: 'changeset',
+      priority: 1
+    });
+  }
+  
+  // 2. 然后添加git提交，但要去重
+  for (const commit of gitCommits) {
+    let isDuplicate = false;
+    
+    // 检查是否与已有的changeset变更重复
+    for (const existingChange of allChanges) {
+      if (areChangesSimilar(commit.message, existingChange.message)) {
+        isDuplicate = true;
+        console.log(`跳过重复的git提交: "${commit.message}"`);
+        break;
+      }
+    }
+    
+    if (!isDuplicate) {
+      allChanges.push({
+        ...commit,
+        source: 'git',
+        priority: 2
+      });
+    }
+  }
+  
+  // 3. 按优先级排序（changeset在前，git提交在后）
+  return allChanges.sort((a, b) => a.priority - b.priority);
 }
 
 // 分类提交信息
@@ -196,15 +263,15 @@ function extractChangesetInfo(pkgName) {
 
 // 生成CHANGELOG条目
 function generateChangelogEntry(version, date, commits, changesetChanges, pkgName) {
-  // 合并git提交和changeset变更
-  const allChanges = [...commits, ...changesetChanges];
+  // 去重和合并变更
+  const deduplicatedChanges = deduplicateChanges(changesetChanges, commits);
   
-  if (allChanges.length === 0) {
+  if (deduplicatedChanges.length === 0) {
     // 如果没有变更，只返回版本标题
     return `## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v${version}) (${date})\n\n`;
   }
   
-  const categorizedCommits = categorizeCommits(allChanges);
+  const categorizedCommits = categorizeCommits(deduplicatedChanges);
   
   let entry = `## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v${version}) (${date})\n\n`;
   
@@ -213,7 +280,7 @@ function generateChangelogEntry(version, date, commits, changesetChanges, pkgNam
     if (data.commits.length > 0) {
       entry += `\n### ${data.section}\n\n`;
       data.commits.forEach(commit => {
-        if (commit.type === 'changeset') {
+        if (commit.source === 'changeset') {
           // 对于changeset变更，直接使用描述
           entry += `* ${commit.message}\n`;
         } else {
@@ -432,7 +499,7 @@ async function main() {
       });
       
       // 生成standard-version格式的CHANGELOG，传递changeset信息
-      generateStandardVersionChangelogWithChangeset(pkg.path, pkg.name, currentVersion, pkg.changesetChanges);
+      generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion);
     }
 
     // 5. 提交更改
@@ -468,128 +535,6 @@ async function main() {
   } catch (error) {
     console.error('发布过程中出错:', error);
     process.exit(1);
-  }
-}
-
-// 生成standard-version格式的CHANGELOG（带changeset信息）
-function generateStandardVersionChangelogWithChangeset(pkgPath, pkgName, currentVersion, changesetChanges) {
-  try {
-    console.log(`为 ${pkgName} 生成standard-version格式的CHANGELOG...`);
-    
-    // 保存当前目录
-    const currentDir = process.cwd();
-    
-    // 切换到包目录
-    process.chdir(pkgPath);
-    
-    // 读取现有的CHANGELOG.md（如果存在）
-    let existingChangelog = '';
-    const changelogPath = 'CHANGELOG.md';
-    if (fs.existsSync(changelogPath)) {
-      existingChangelog = fs.readFileSync(changelogPath, 'utf8');
-      console.log(`已读取现有CHANGELOG`);
-    }
-    
-    // 切换回原目录
-    process.chdir(currentDir);
-    
-    console.log(`使用 ${changesetChanges.length} 个changeset变更`);
-    
-    // 获取最后一次发布的commit
-    let lastReleaseCommit = '';
-    try {
-      const releaseCommits = execQuiet('git log --oneline --grep="chore(release):" -n 1');
-      if (releaseCommits) {
-        lastReleaseCommit = releaseCommits.split(' ')[0];
-        console.log(`找到最后一次发布提交: ${lastReleaseCommit}`);
-      }
-    } catch (e) {
-      console.log('未找到之前的发布提交');
-    }
-    
-    // 获取最新的git提交信息
-    const latestCommits = getLatestCommits(lastReleaseCommit);
-    console.log(`找到 ${latestCommits.length} 个新git提交`);
-    
-    // 生成新版本的CHANGELOG条目
-    const currentDate = getCurrentDate();
-    const newVersionEntry = generateChangelogEntry(currentVersion, currentDate, latestCommits, changesetChanges, pkgName);
-    
-    // 切换回包目录
-    process.chdir(pkgPath);
-    
-    // 处理现有CHANGELOG，提取旧版本部分
-    let oldVersionsContent = '';
-    if (existingChangelog) {
-      const existingLines = existingChangelog.split('\n');
-      
-      // 找到第一个版本标题的位置
-      let oldVersionsStartIndex = -1;
-      for (let i = 0; i < existingLines.length; i++) {
-        const line = existingLines[i];
-        if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
-          oldVersionsStartIndex = i;
-          break;
-        }
-      }
-      
-      if (oldVersionsStartIndex !== -1) {
-        // 过滤掉changeset格式的内容，只保留standard-version格式的版本
-        const oldVersionsLines = existingLines.slice(oldVersionsStartIndex);
-        const filteredOldVersions = [];
-        let skipChangesetVersion = false;
-        
-        for (const line of oldVersionsLines) {
-          // 检测changeset格式的版本标题（没有链接的## 1.0.x格式）
-          if (line.match(/^##\s+\d+\.\d+\.\d+$/) && !line.includes('](')) {
-            skipChangesetVersion = true;
-            continue;
-          }
-          
-          // 检测standard-version格式的版本标题
-          if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
-            skipChangesetVersion = false;
-          }
-          
-          // 跳过changeset格式的内容
-          if (skipChangesetVersion) {
-            if (line.includes('### Patch Changes') || line.includes('### Minor Changes') || line.includes('### Major Changes') || line.startsWith('- ')) {
-              continue;
-            }
-          }
-          
-          if (!skipChangesetVersion) {
-            filteredOldVersions.push(line);
-          }
-        }
-        
-        oldVersionsContent = filteredOldVersions.join('\n');
-      }
-    }
-    
-    // 构造最终的CHANGELOG
-    let finalChangelog = `# ${pkgName}\n\n# Changelog\n\nAll notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.\n\n${newVersionEntry}`;
-    
-    // 如果有旧版本内容，添加到最后
-    if (oldVersionsContent.trim()) {
-      finalChangelog += `\n${oldVersionsContent}`;
-    }
-    
-    // 写入最终的CHANGELOG
-    fs.writeFileSync(changelogPath, finalChangelog);
-    
-    // 返回原目录
-    process.chdir(currentDir);
-    
-    console.log(`✅ 已为 ${pkgName} 生成standard-version格式的CHANGELOG`);
-  } catch (e) {
-    console.error(`为 ${pkgName} 生成 CHANGELOG 失败:`, e);
-    // 确保返回原目录
-    try {
-      process.chdir(currentDir);
-    } catch (dirError) {
-      // 忽略错误
-    }
   }
 }
 

@@ -153,6 +153,9 @@ async function main() {
       }
     }
     
+    // 跟踪已更新的包
+    const updatedPackages = [];
+    
     // 为有版本变更的包生成 CHANGELOG
     for (const pkg of packages) {
       // 检查包是否有版本变更
@@ -168,6 +171,9 @@ async function main() {
         const previousVersion = (currentVersion.split('.').map(Number)[2] > 0) 
           ? `${currentVersion.split('.').slice(0, 2).join('.')}.${currentVersion.split('.')[2] - 1}`
           : '1.0.0';
+        
+        // 记录更新的包
+        updatedPackages.push({ name: pkg.name, version: currentVersion });
         
         // 在包目录中生成 CHANGELOG
         try {
@@ -230,12 +236,22 @@ async function main() {
     }
 
     // 4. 提交更改
-    console.log('提交版本更新...');
-    exec('git add .');
-    exec('git commit -m "chore(release): 发布新版本"');
-
-    console.log('完成！');
-    console.log(`\n要推送更改，请运行:\ngit push`);
+    if (updatedPackages.length > 0) {
+      console.log('提交版本更新...');
+      
+      // 生成提交信息
+      const packageNames = updatedPackages.map(p => p.name).join(', ');
+      const versionInfo = updatedPackages.map(p => `${p.name}@${p.version}`).join(', ');
+      const commitMessage = `chore(release): 发布新版本 [${packageNames}] - ${versionInfo}`;
+      
+      exec('git add .');
+      exec(`git commit -m "${commitMessage}"`);
+      
+      console.log('完成！');
+      console.log(`\n要推送更改，请运行:\ngit push`);
+    } else {
+      console.log('没有包需要更新，跳过提交步骤。');
+    }
   } catch (error) {
     console.error('发布过程中出错:', error);
     process.exit(1);

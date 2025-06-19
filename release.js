@@ -19,6 +19,15 @@ function exec(command) {
   }
 }
 
+// 获取当前日期，格式为 YYYY-MM-DD
+function getCurrentDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // 检查包是否有版本变更
 function hasVersionChanged(pkgPath, lastCommitId) {
   try {
@@ -44,6 +53,46 @@ function hasVersionChanged(pkgPath, lastCommitId) {
     // 如果出错（例如，这是新包），假设有变更
     return true;
   }
+}
+
+// 格式化CHANGELOG
+function formatChangelog(pkgName, content) {
+  // 移除@changesets/cli生成的内容
+  const changesetContent = content.split('\n\n## ');
+  
+  if (changesetContent.length <= 1) {
+    return content;
+  }
+  
+  // 提取版本号和变更内容
+  const versionMatch = content.match(/## (\d+\.\d+\.\d+)/);
+  if (!versionMatch) {
+    return content;
+  }
+  
+  const version = versionMatch[1];
+  const currentDate = getCurrentDate();
+  
+  // 从原始内容中提取变更内容
+  const changelogRegex = /### (.*?)\n\n([\s\S]*?)(?=\n\n###|$)/g;
+  let match;
+  const sections = [];
+  
+  while ((match = changelogRegex.exec(content)) !== null) {
+    const sectionTitle = match[1].trim();
+    const sectionContent = match[2].trim();
+    sections.push({ title: sectionTitle, content: sectionContent });
+  }
+  
+  // 构建新的CHANGELOG内容
+  let newContent = `# ${pkgName}\n\n## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v${version}...v${version}) (${currentDate})\n\n`;
+  
+  // 添加各部分内容
+  for (const section of sections) {
+    newContent += `### ${section.title}\n\n${section.content}\n\n`;
+  }
+  
+  return newContent;
 }
 
 // 主流程
@@ -91,35 +140,43 @@ async function main() {
       if (hasVersionChanged(pkg.path, lastCommitId)) {
         console.log(`处理包: ${pkg.name} (版本已变更)`);
         
-        // 保存原始的 CHANGELOG 内容
-        const changelogPath = path.join(pkg.path, 'CHANGELOG.md');
-        let originalChangelog = '';
-        if (fs.existsSync(changelogPath)) {
-          originalChangelog = fs.readFileSync(changelogPath, 'utf8');
-        }
+        // 获取包信息
+        const pkgJsonPath = path.join(pkg.path, 'package.json');
+        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+        const currentVersion = pkgJson.version;
         
         // 在包目录中生成 CHANGELOG
         try {
+          // 保存当前目录
+          const currentDir = process.cwd();
+          
+          // 切换到包目录
           process.chdir(pkg.path);
-          exec('npx standard-version --skip.tag --skip.commit --skip.bump');
-          process.chdir('../../');
+          
+          // 运行 standard-version 生成 CHANGELOG
+          exec('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
+          
+          // 读取生成的 CHANGELOG
+          const changelogPath = path.join(process.cwd(), 'CHANGELOG.md');
+          if (fs.existsSync(changelogPath)) {
+            const content = fs.readFileSync(changelogPath, 'utf8');
+            
+            // 格式化 CHANGELOG
+            const formattedContent = formatChangelog(pkg.name, content);
+            
+            // 写回格式化后的 CHANGELOG
+            fs.writeFileSync(changelogPath, formattedContent);
+          }
+          
+          // 返回原目录
+          process.chdir(currentDir);
         } catch (e) {
-          console.error(`为 ${pkg.name} 生成 CHANGELOG 失败`);
-          process.chdir('../../');
-        }
-        
-        // 如果 CHANGELOG 被覆盖，恢复原始内容并追加新内容
-        if (originalChangelog && fs.existsSync(changelogPath)) {
-          const newChangelog = fs.readFileSync(changelogPath, 'utf8');
-          if (newChangelog !== originalChangelog && !originalChangelog.includes(newChangelog)) {
-            // 提取新版本的内容
-            const versionMatch = newChangelog.match(/##\s+\[\d+\.\d+\.\d+\].+?(?=##|$)/s);
-            if (versionMatch) {
-              const newVersionContent = versionMatch[0];
-              // 将新版本内容插入到原始 CHANGELOG 的顶部
-              const updatedChangelog = originalChangelog.replace('# ', `# ${pkg.name}\n\n${newVersionContent}\n`);
-              fs.writeFileSync(changelogPath, updatedChangelog);
-            }
+          console.error(`为 ${pkg.name} 生成 CHANGELOG 失败:`, e);
+          // 确保返回原目录
+          try {
+            process.chdir(currentDir);
+          } catch (dirError) {
+            // 忽略错误
           }
         }
       } else {

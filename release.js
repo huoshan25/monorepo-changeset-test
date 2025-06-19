@@ -4,6 +4,27 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// 配置常量
+const CONFIG = {
+  GITHUB_REPO: 'https://github.com/huoshan25/monorepo-changeset-test',
+  COMPARE_BASE: 'v1.0.0',
+  PACKAGES_DIRS: ['packages', 'apps'],
+  CHANGESET_DIR: '.changeset',
+  CHANGESET_FILES_TO_IGNORE: ['README.md', 'config.json'],
+  SIMILARITY_THRESHOLD: 0.7,
+  MAX_COMMITS_FALLBACK: 10
+};
+
+// 常用正则表达式
+const PATTERNS = {
+  COMMIT_TYPE: /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]*\))?:\s*/i,
+  VERSION_LINK: /^##\s+\[/,
+  VERSION_HEADER: /^###\s+\[/,
+  CHANGESET_VERSION: /^##\s+\d+\.\d+\.\d+$/,
+  COMMIT_HASH: /^([a-f0-9]+)\s+(.+)$/,
+  CHINESE_NUMBER: /第\s*(\d+)\s*次/g
+};
+
 // 执行命令并打印输出
 function exec(command) {
   console.log(`执行: ${command}`);
@@ -37,22 +58,27 @@ function getCurrentDate() {
   return `${year}-${month}-${day}`;
 }
 
+// 获取changeset文件过滤器
+function getChangesetFiles(dir = CONFIG.CHANGESET_DIR) {
+  if (!fs.existsSync(dir)) return [];
+  
+  return fs.readdirSync(dir).filter(file => 
+    file.endsWith('.md') && 
+    !CONFIG.CHANGESET_FILES_TO_IGNORE.includes(file)
+  );
+}
+
 // 检查包是否在变更集中被修改
 function isPackageInChangesets(pkgName) {
   try {
-    if (!fs.existsSync('.changeset')) {
+    if (!fs.existsSync(CONFIG.CHANGESET_DIR)) {
       return false;
     }
     
-    const files = fs.readdirSync('.changeset');
-    const changesetFiles = files.filter(file => 
-      file.endsWith('.md') && 
-      file !== 'README.md' && 
-      file !== 'config.json'
-    );
+    const files = getChangesetFiles();
     
-    for (const file of changesetFiles) {
-      const content = fs.readFileSync(path.join('.changeset', file), 'utf8');
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(CONFIG.CHANGESET_DIR, file), 'utf8');
       // 检查文件内容是否包含包名
       if (content.includes(`"${pkgName}"`) || content.includes(`'${pkgName}'`)) {
         return true;
@@ -68,19 +94,13 @@ function isPackageInChangesets(pkgName) {
 
 // 检查是否有变更集文件
 function hasChangesets() {
-  if (!fs.existsSync('.changeset')) {
+  if (!fs.existsSync(CONFIG.CHANGESET_DIR)) {
     return false;
   }
   
-  const files = fs.readdirSync('.changeset');
-  // 过滤掉README.md和config.json等非变更集文件
-  const changesetFiles = files.filter(file => 
-    file.endsWith('.md') && 
-    file !== 'README.md' && 
-    file !== 'config.json'
-  );
+  const files = getChangesetFiles();
   
-  return changesetFiles.length > 0;
+  return files.length > 0;
 }
 
 // 获取最新的提交信息
@@ -155,7 +175,7 @@ function areChangesSimilar(change1, change2) {
   const similarity = calculateSimilarity(core1, core2);
   
   // 如果相似度超过70%，认为是重复
-  return similarity > 0.7;
+  return similarity > CONFIG.SIMILARITY_THRESHOLD;
 }
 
 // 计算两个字符串的相似度
@@ -172,7 +192,7 @@ function calculateSimilarity(str1, str2) {
   
   // 标准化数字和空格，特别处理中文数字表达
   const normalize = (s) => s
-    .replace(/第\s*(\d+)\s*次/g, '第$1次')  // 统一"第X次"格式
+    .replace(PATTERNS.CHINESE_NUMBER, '第$1次')  // 统一"第X次"格式
     .replace(/\s+/g, ' ')  // 统一空格
     .trim();
   
@@ -196,7 +216,7 @@ function calculateSimilarity(str1, str2) {
   return similarity;
 }
 
-// 去重和合并变更
+// 去重和合并变更（性能优化版本）
 function deduplicateChanges(changesetChanges, gitCommits) {
   const allChanges = [];
   
@@ -205,26 +225,36 @@ function deduplicateChanges(changesetChanges, gitCommits) {
   console.log(`Git提交数量: ${gitCommits.length}`);
   
   // 1. 首先添加git提交（优先级更高，因为有链接和commit hash）
+  const gitCommitMap = new Map();
   for (const commit of gitCommits) {
     console.log(`✅ 添加git提交: "${commit.message}"`);
-    allChanges.push({
+    const changeEntry = {
       ...commit,
       source: 'git',
       priority: 1
-    });
+    };
+    allChanges.push(changeEntry);
+    // 为快速查找建立索引
+    gitCommitMap.set(commit.message, changeEntry);
   }
   
   // 2. 然后添加changeset变更，但要去重
   for (const change of changesetChanges) {
     let isDuplicate = false;
     
-    // 检查是否与已有的git提交重复
-    for (const existingChange of allChanges) {
-      if (areChangesSimilar(change.message, existingChange.message)) {
-        isDuplicate = true;
-        console.log(`❌ 跳过重复的changeset: "${change.message}"`);
-        console.log(`   与git提交重复: "${existingChange.message}"`);
-        break;
+    // 首先检查完全匹配
+    if (gitCommitMap.has(change.message)) {
+      isDuplicate = true;
+      console.log(`❌ 跳过完全重复的changeset: "${change.message}"`);
+    } else {
+      // 检查相似度（只有在没有完全匹配时才进行）
+      for (const existingChange of allChanges) {
+        if (areChangesSimilar(change.message, existingChange.message)) {
+          isDuplicate = true;
+          console.log(`❌ 跳过相似的changeset: "${change.message}"`);
+          console.log(`   与git提交重复: "${existingChange.message}"`);
+          break;
+        }
       }
     }
     
@@ -286,21 +316,16 @@ function categorizeCommits(commits) {
 // 从changeset文件中提取变更信息
 function extractChangesetInfo(pkgName) {
   try {
-    if (!fs.existsSync('.changeset')) {
+    if (!fs.existsSync(CONFIG.CHANGESET_DIR)) {
       return [];
     }
     
-    const files = fs.readdirSync('.changeset');
-    const changesetFiles = files.filter(file => 
-      file.endsWith('.md') && 
-      file !== 'README.md' && 
-      file !== 'config.json'
-    );
+    const files = getChangesetFiles();
     
     const changes = [];
     
-    for (const file of changesetFiles) {
-      const content = fs.readFileSync(path.join('.changeset', file), 'utf8');
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(CONFIG.CHANGESET_DIR, file), 'utf8');
       
       // 检查这个changeset是否包含当前包
       if (content.includes(`"${pkgName}"`) || content.includes(`'${pkgName}'`)) {
@@ -338,7 +363,7 @@ function generateChangelogEntry(version, date, commits, changesetChanges, pkgNam
   
   const categorizedCommits = categorizeCommits(deduplicatedChanges);
   
-  let entry = `## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v${version}) (${date})\n\n`;
+  let entry = `## [${version}](${generateVersionUrl(version)}) (${date})\n\n`;
   
   // 按类型生成各个section
   Object.entries(categorizedCommits).forEach(([type, data]) => {
@@ -353,7 +378,7 @@ function generateChangelogEntry(version, date, commits, changesetChanges, pkgNam
           const scope = commit.message.match(/\(([^)]+)\)/);
           const scopeText = scope ? `**${scope[1]}:** ` : '';
           const cleanMessage = commit.message.replace(/^[^:]+:\s*/, '');
-          entry += `* ${scopeText}${cleanMessage} ([${commit.hash}](https://github.com/huoshan25/monorepo-changeset-test/commit/${commit.hash}))\n`;
+          entry += `* ${scopeText}${cleanMessage} ([${commit.hash}](${generateCommitUrl(commit.hash)}))\n`;
         }
       });
     }
@@ -405,7 +430,7 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion, chan
       let oldVersionsStartIndex = -1;
       for (let i = 0; i < existingLines.length; i++) {
         const line = existingLines[i];
-        if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+        if (line.match(PATTERNS.VERSION_LINK) || line.match(PATTERNS.VERSION_HEADER)) {
           oldVersionsStartIndex = i;
           break;
         }
@@ -419,13 +444,13 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion, chan
         
         for (const line of oldVersionsLines) {
           // 检测changeset格式的版本标题（没有链接的## 1.0.x格式）
-          if (line.match(/^##\s+\d+\.\d+\.\d+$/) && !line.includes('](')) {
+          if (line.match(PATTERNS.CHANGESET_VERSION) && !line.includes('](')) {
             skipChangesetVersion = true;
             continue;
           }
           
           // 检测standard-version格式的版本标题
-          if (line.match(/^##\s+\[/) || line.match(/^###\s+\[/)) {
+          if (line.match(PATTERNS.VERSION_LINK) || line.match(PATTERNS.VERSION_HEADER)) {
             skipChangesetVersion = false;
           }
           
@@ -471,6 +496,43 @@ function generateStandardVersionChangelog(pkgPath, pkgName, currentVersion, chan
   }
 }
 
+// 安全的目录操作工具
+function withDirectory(targetDir, callback) {
+  const originalDir = process.cwd();
+  try {
+    process.chdir(targetDir);
+    return callback();
+  } finally {
+    process.chdir(originalDir);
+  }
+}
+
+// 获取文件内容的安全方法
+function readFileInDirectory(dir, fileName) {
+  return withDirectory(dir, () => {
+    if (fs.existsSync(fileName)) {
+      return fs.readFileSync(fileName, 'utf8');
+    }
+    return null;
+  });
+}
+
+// 写文件的安全方法
+function writeFileInDirectory(dir, fileName, content) {
+  return withDirectory(dir, () => {
+    fs.writeFileSync(fileName, content);
+  });
+}
+
+// URL生成工具
+function generateVersionUrl(version) {
+  return `${CONFIG.GITHUB_REPO}/compare/${CONFIG.COMPARE_BASE}...v${version}`;
+}
+
+function generateCommitUrl(hash) {
+  return `${CONFIG.GITHUB_REPO}/commit/${hash}`;
+}
+
 // 主流程
 async function main() {
   try {
@@ -484,10 +546,9 @@ async function main() {
     // 2. 在更新版本之前，先检查哪些包在变更集中并提取变更信息
     console.log('检查哪些包有变更...');
     
-    const packagesDir = ['packages', 'apps'];
     const packages = [];
     
-    for (const dir of packagesDir) {
+    for (const dir of CONFIG.PACKAGES_DIRS) {
       if (fs.existsSync(dir)) {
         const subDirs = fs.readdirSync(dir);
         for (const subDir of subDirs) {

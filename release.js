@@ -19,6 +19,15 @@ function exec(command) {
   }
 }
 
+// 执行命令但不打印输出
+function execQuiet(command) {
+  try {
+    return execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (error) {
+    return null;
+  }
+}
+
 // 获取当前日期，格式为 YYYY-MM-DD
 function getCurrentDate() {
   const date = new Date();
@@ -32,10 +41,14 @@ function getCurrentDate() {
 function hasVersionChanged(pkgPath, lastCommitId) {
   try {
     // 获取上次提交的package.json内容
-    const lastPackageJson = execSync(
-      `git show ${lastCommitId}:${pkgPath}/package.json`,
-      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+    const lastPackageJson = execQuiet(
+      `git show ${lastCommitId}:${pkgPath}/package.json`
     );
+    
+    if (!lastPackageJson) {
+      // 如果无法获取上次提交的package.json，可能是新包
+      return true;
+    }
     
     // 获取当前package.json内容
     const currentPackageJson = fs.readFileSync(
@@ -50,8 +63,35 @@ function hasVersionChanged(pkgPath, lastCommitId) {
     // 比较版本号
     return lastVersion !== currentVersion;
   } catch (e) {
-    // 如果出错（例如，这是新包），假设有变更
-    return true;
+    console.error(`检查版本变更时出错:`, e);
+    // 如果出错，假设没有变更
+    return false;
+  }
+}
+
+// 获取包的变更集信息
+function getChangesetInfo(pkgName) {
+  try {
+    // 读取.changeset目录下的所有.md文件
+    const changesetDir = path.join(process.cwd(), '.changeset');
+    if (!fs.existsSync(changesetDir)) {
+      return null;
+    }
+    
+    const files = fs.readdirSync(changesetDir);
+    for (const file of files) {
+      if (file.endsWith('.md')) {
+        const content = fs.readFileSync(path.join(changesetDir, file), 'utf8');
+        if (content.includes(`"${pkgName}"`)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    console.error(`获取变更集信息时出错:`, e);
+    return false;
   }
 }
 
@@ -93,6 +133,53 @@ function formatChangelog(pkgName, content) {
   }
   
   return newContent;
+}
+
+// 清理CHANGELOG文件，移除重复内容
+function cleanupChangelog(changelogPath) {
+  if (!fs.existsSync(changelogPath)) {
+    return;
+  }
+  
+  // 读取CHANGELOG内容
+  const content = fs.readFileSync(changelogPath, 'utf8');
+  
+  // 提取所有版本块
+  const versionBlocks = [];
+  const versionRegex = /## \[\d+\.\d+\.\d+\].*?(?=## \[\d+\.\d+\.\d+\]|$)/gs;
+  let match;
+  
+  while ((match = versionRegex.exec(content)) !== null) {
+    versionBlocks.push(match[0]);
+  }
+  
+  // 如果没有找到版本块，返回原内容
+  if (versionBlocks.length === 0) {
+    return;
+  }
+  
+  // 提取标题
+  const titleMatch = content.match(/^# .*/);
+  const title = titleMatch ? titleMatch[0] : '# Changelog';
+  
+  // 构建新的CHANGELOG内容
+  let newContent = `${title}\n\n`;
+  
+  // 添加不重复的版本块
+  const addedVersions = new Set();
+  for (const block of versionBlocks) {
+    const versionMatch = block.match(/## \[(\d+\.\d+\.\d+)\]/);
+    if (versionMatch) {
+      const version = versionMatch[1];
+      if (!addedVersions.has(version)) {
+        newContent += block + '\n\n';
+        addedVersions.add(version);
+      }
+    }
+  }
+  
+  // 写回文件
+  fs.writeFileSync(changelogPath, newContent);
 }
 
 // 主流程
@@ -137,7 +224,10 @@ async function main() {
     // 为有版本变更的包生成 CHANGELOG
     for (const pkg of packages) {
       // 检查包是否有版本变更
-      if (hasVersionChanged(pkg.path, lastCommitId)) {
+      const versionChanged = hasVersionChanged(pkg.path, lastCommitId);
+      const hasChangeset = getChangesetInfo(pkg.name);
+      
+      if (versionChanged) {
         console.log(`处理包: ${pkg.name} (版本已变更)`);
         
         // 获取包信息
@@ -154,7 +244,7 @@ async function main() {
           process.chdir(pkg.path);
           
           // 运行 standard-version 生成 CHANGELOG
-          exec('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
+          execQuiet('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
           
           // 读取生成的 CHANGELOG
           const changelogPath = path.join(process.cwd(), 'CHANGELOG.md');
@@ -166,6 +256,9 @@ async function main() {
             
             // 写回格式化后的 CHANGELOG
             fs.writeFileSync(changelogPath, formattedContent);
+            
+            // 清理CHANGELOG，移除重复内容
+            cleanupChangelog(changelogPath);
           }
           
           // 返回原目录

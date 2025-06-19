@@ -1,4 +1,6 @@
-# project-a
+# {{package}}
+
+## [{{currentTag}}]({{compareUrlFormat}}) ({{currentDate}})
 
 ## [1.0.0](https://github.com/huoshan25/monorepo-changeset-test/compare/v1.0.0...v1.0.0) (2025-06-19)
 
@@ -10,4 +12,3 @@
 * 添加自动生成changeset的脚本 ([fb61353](https://github.com/huoshan25/monorepo-changeset-test/commit/fb61353440f5219f0a1f73a2c5b135aa92e6f7c8))
 * 项目初始化 ([9fc05d8](https://github.com/huoshan25/monorepo-changeset-test/commit/9fc05d8bbe5cecdc2d6ccdf16d1001351aeef1d3))
 * 自定义提交记录样式 ([ec28d81](https://github.com/huoshan25/monorepo-changeset-test/commit/ec28d810777734478e11297ac5724d5912c9c842))
-

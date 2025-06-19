@@ -1,5 +1,11 @@
 # package-a
 
+## 1.0.8
+
+### Patch Changes
+
+- docs(package-a): docs: 修改测试
+
 ## 1.0.7
 
 ### Patch Changes

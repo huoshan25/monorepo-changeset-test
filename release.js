@@ -171,11 +171,7 @@ async function main() {
       process.exit(0);
     }
 
-    // 2. 使用 @changesets/cli 更新版本
-    console.log('更新包版本...');
-    exec('pnpm version:update');
-
-    // 3. 获取所有包目录并检查哪些包被修改
+    // 2. 在更新版本之前，先检查哪些包在变更集中
     console.log('检查哪些包有变更...');
     
     const packagesDir = ['packages', 'apps'];
@@ -194,34 +190,51 @@ async function main() {
       }
     }
     
-    // 跟踪已更新的包
-    const updatedPackages = [];
+    // 跟踪需要更新的包
+    const packagesToUpdate = [];
     
     // 检查哪些包在变更集中被修改
     for (const pkg of packages) {
       if (isPackageInChangesets(pkg.name)) {
         console.log(`检测到包 ${pkg.name} 在变更集中`);
-        
-        // 获取当前版本
-        const pkgJsonPath = path.join(pkg.path, 'package.json');
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-        const currentVersion = pkgJson.version;
-        
-        // 记录更新的包
-        updatedPackages.push({ 
-          name: pkg.name, 
-          version: currentVersion,
-          path: pkg.path
-        });
-        
-        // 生成standard-version格式的CHANGELOG
-        generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion);
+        packagesToUpdate.push(pkg);
       } else {
         console.log(`跳过包: ${pkg.name} (不在变更集中)`);
       }
     }
 
-    // 4. 提交更改
+    if (packagesToUpdate.length === 0) {
+      console.log('没有包需要更新，跳过发布步骤。');
+      process.exit(0);
+    }
+
+    // 3. 使用 @changesets/cli 更新版本
+    console.log('更新包版本...');
+    exec('pnpm version:update');
+
+    // 4. 为更新的包生成standard-version格式的CHANGELOG并记录版本信息
+    console.log('生成详细的 CHANGELOG...');
+    
+    const updatedPackages = [];
+    
+    for (const pkg of packagesToUpdate) {
+      // 获取更新后的版本
+      const pkgJsonPath = path.join(pkg.path, 'package.json');
+      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+      const currentVersion = pkgJson.version;
+      
+      // 记录更新的包
+      updatedPackages.push({ 
+        name: pkg.name, 
+        version: currentVersion,
+        path: pkg.path
+      });
+      
+      // 生成standard-version格式的CHANGELOG
+      generateStandardVersionChangelog(pkg.path, pkg.name, currentVersion);
+    }
+
+    // 5. 提交更改
     if (updatedPackages.length > 0) {
       console.log('提交版本更新...');
       

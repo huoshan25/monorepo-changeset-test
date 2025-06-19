@@ -95,91 +95,23 @@ function getChangesetInfo(pkgName) {
   }
 }
 
-// 格式化CHANGELOG
-function formatChangelog(pkgName, content) {
-  // 移除@changesets/cli生成的内容
-  const changesetContent = content.split('\n\n## ');
+// 删除所有CHANGELOG文件
+function deleteChangelogs() {
+  const packagesDir = ['packages', 'apps'];
   
-  if (changesetContent.length <= 1) {
-    return content;
-  }
-  
-  // 提取版本号和变更内容
-  const versionMatch = content.match(/## (\d+\.\d+\.\d+)/);
-  if (!versionMatch) {
-    return content;
-  }
-  
-  const version = versionMatch[1];
-  const currentDate = getCurrentDate();
-  
-  // 从原始内容中提取变更内容
-  const changelogRegex = /### (.*?)\n\n([\s\S]*?)(?=\n\n###|$)/g;
-  let match;
-  const sections = [];
-  
-  while ((match = changelogRegex.exec(content)) !== null) {
-    const sectionTitle = match[1].trim();
-    const sectionContent = match[2].trim();
-    sections.push({ title: sectionTitle, content: sectionContent });
-  }
-  
-  // 构建新的CHANGELOG内容
-  let newContent = `# ${pkgName}\n\n## [${version}](https://github.com/huoshan25/monorepo-changeset-test/compare/v${version}...v${version}) (${currentDate})\n\n`;
-  
-  // 添加各部分内容
-  for (const section of sections) {
-    newContent += `### ${section.title}\n\n${section.content}\n\n`;
-  }
-  
-  return newContent;
-}
-
-// 清理CHANGELOG文件，移除重复内容
-function cleanupChangelog(changelogPath) {
-  if (!fs.existsSync(changelogPath)) {
-    return;
-  }
-  
-  // 读取CHANGELOG内容
-  const content = fs.readFileSync(changelogPath, 'utf8');
-  
-  // 提取所有版本块
-  const versionBlocks = [];
-  const versionRegex = /## \[\d+\.\d+\.\d+\].*?(?=## \[\d+\.\d+\.\d+\]|$)/gs;
-  let match;
-  
-  while ((match = versionRegex.exec(content)) !== null) {
-    versionBlocks.push(match[0]);
-  }
-  
-  // 如果没有找到版本块，返回原内容
-  if (versionBlocks.length === 0) {
-    return;
-  }
-  
-  // 提取标题
-  const titleMatch = content.match(/^# .*/);
-  const title = titleMatch ? titleMatch[0] : '# Changelog';
-  
-  // 构建新的CHANGELOG内容
-  let newContent = `${title}\n\n`;
-  
-  // 添加不重复的版本块
-  const addedVersions = new Set();
-  for (const block of versionBlocks) {
-    const versionMatch = block.match(/## \[(\d+\.\d+\.\d+)\]/);
-    if (versionMatch) {
-      const version = versionMatch[1];
-      if (!addedVersions.has(version)) {
-        newContent += block + '\n\n';
-        addedVersions.add(version);
+  for (const dir of packagesDir) {
+    if (fs.existsSync(dir)) {
+      const subDirs = fs.readdirSync(dir);
+      for (const subDir of subDirs) {
+        const pkgPath = path.join(dir, subDir);
+        const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
+        if (fs.existsSync(changelogPath)) {
+          console.log(`删除旧的CHANGELOG: ${changelogPath}`);
+          fs.unlinkSync(changelogPath);
+        }
       }
     }
   }
-  
-  // 写回文件
-  fs.writeFileSync(changelogPath, newContent);
 }
 
 // 主流程
@@ -225,7 +157,6 @@ async function main() {
     for (const pkg of packages) {
       // 检查包是否有版本变更
       const versionChanged = hasVersionChanged(pkg.path, lastCommitId);
-      const hasChangeset = getChangesetInfo(pkg.name);
       
       if (versionChanged) {
         console.log(`处理包: ${pkg.name} (版本已变更)`);
@@ -234,6 +165,9 @@ async function main() {
         const pkgJsonPath = path.join(pkg.path, 'package.json');
         const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
         const currentVersion = pkgJson.version;
+        const previousVersion = (currentVersion.split('.').map(Number)[2] > 0) 
+          ? `${currentVersion.split('.').slice(0, 2).join('.')}.${currentVersion.split('.')[2] - 1}`
+          : '1.0.0';
         
         // 在包目录中生成 CHANGELOG
         try {
@@ -243,22 +177,40 @@ async function main() {
           // 切换到包目录
           process.chdir(pkg.path);
           
+          // 创建临时的 .versionrc.json
+          const versionrcContent = JSON.stringify({
+            "types": [
+              {"type": "feat", "section": "✨ Features"},
+              {"type": "minor", "section": "🌱 Minor Features", "bump": "patch"},
+              {"type": "fix", "section": "🐛 Bug Fixes"},
+              {"type": "docs", "section": "📝 Documentation"},
+              {"type": "style", "section": "🎨 Code Styles"},
+              {"type": "refactor", "section": "♻️ Code Refactoring"},
+              {"type": "perf", "section": "🚀 Performance Improvements"},
+              {"type": "test", "section": "🧪 Tests"},
+              {"type": "build", "section": "🏗️ Build System"},
+              {"type": "ci", "section": "⚙️ CI Configuration"},
+              {"type": "chore", "section": "🧹 Chores"},
+              {"type": "revert", "section": "⏮️ Reverts"}
+            ],
+            "commitUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/commit/{{hash}}",
+            "compareUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/compare/v{{previousTag}}...v{{currentTag}}",
+            "issueUrlFormat": "https://github.com/huoshan25/monorepo-changeset-test/issues/{{id}}",
+            "skip": {
+              "tag": true,
+              "commit": true
+            },
+            "header": `# ${pkg.name}\n\n## [${currentVersion}](https://github.com/huoshan25/monorepo-changeset-test/compare/v${previousVersion}...v${currentVersion}) (${getCurrentDate()})\n`
+          });
+          
+          fs.writeFileSync('.versionrc.json', versionrcContent);
+          
           // 运行 standard-version 生成 CHANGELOG
           execQuiet('npx standard-version --skip.tag --skip.commit --skip.bump --silent');
           
-          // 读取生成的 CHANGELOG
-          const changelogPath = path.join(process.cwd(), 'CHANGELOG.md');
-          if (fs.existsSync(changelogPath)) {
-            const content = fs.readFileSync(changelogPath, 'utf8');
-            
-            // 格式化 CHANGELOG
-            const formattedContent = formatChangelog(pkg.name, content);
-            
-            // 写回格式化后的 CHANGELOG
-            fs.writeFileSync(changelogPath, formattedContent);
-            
-            // 清理CHANGELOG，移除重复内容
-            cleanupChangelog(changelogPath);
+          // 删除临时文件
+          if (fs.existsSync('.versionrc.json')) {
+            fs.unlinkSync('.versionrc.json');
           }
           
           // 返回原目录

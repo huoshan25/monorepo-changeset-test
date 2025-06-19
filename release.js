@@ -170,18 +170,29 @@ function calculateSimilarity(str1, str2) {
   // 如果长度差异太大，直接认为不相似
   if (Math.abs(len1 - len2) > Math.max(len1, len2) * 0.5) return 0;
   
-  // 简单的包含检查
-  if (str1.includes(str2) || str2.includes(str1)) return 0.9;
+  // 标准化数字和空格，特别处理中文数字表达
+  const normalize = (s) => s
+    .replace(/第\s*(\d+)\s*次/g, '第$1次')  // 统一"第X次"格式
+    .replace(/\s+/g, ' ')  // 统一空格
+    .trim();
   
-  // 检查共同的关键词
-  const words1 = str1.split(' ').filter(w => w.length > 2);
-  const words2 = str2.split(' ').filter(w => w.length > 2);
+  const norm1 = normalize(str1);
+  const norm2 = normalize(str2);
+  
+  // 简单的包含检查
+  if (norm1.includes(norm2) || norm2.includes(norm1)) return 0.95;
+  if (norm1 === norm2) return 1.0;
+  
+  // 检查共同的关键词（过滤掉常见词）
+  const words1 = norm1.split(' ').filter(w => w.length > 1 && !['的', '和', '与', '或', '及'].includes(w));
+  const words2 = norm2.split(' ').filter(w => w.length > 1 && !['的', '和', '与', '或', '及'].includes(w));
   
   if (words1.length === 0 || words2.length === 0) return 0;
   
   const commonWords = words1.filter(w => words2.includes(w));
   const similarity = (commonWords.length * 2) / (words1.length + words2.length);
   
+  // 如果关键词匹配度很高，认为相似
   return similarity;
 }
 
